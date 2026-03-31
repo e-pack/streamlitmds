@@ -167,7 +167,7 @@ section.main > div { background-color: #ffffff; }
 }
 .warn-box {
     background: #fff8e6; border: 1px solid #f0c060; border-radius: 8px;
-    padding: 12px 16px; font-size: 13px; color: #7a5100; margin: 12px 0;
+    padding: 12px 16px; font-size: 13px; color: #000000; margin: 12px 0;
 }
 
 /* ── Audit entries ── */

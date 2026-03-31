@@ -368,9 +368,9 @@ with st.sidebar:
 
     pending_count = len(st.session_state.staging[st.session_state.staging["Status"] == "Pending"])
 
-    page = st.radio(
-        "nav",
-        ["Customers","Products","Vendors","Locations","—","Pending Review","Audit Log","Bulk Import"],
+    domain_choice = st.selectbox(
+        "Select domain",
+        ["Customers", "Products", "Vendors", "Locations"],
         label_visibility="collapsed",
     )
 
@@ -539,7 +539,6 @@ def render_review():
     uname = st.session_state.user_name
     role  = st.session_state.user_role
 
-    st.markdown('<div class="page-title">Pending Review</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Records submitted by contributors, awaiting steward approval before writing to master tables</div>', unsafe_allow_html=True)
 
     if role != "MDS_STEWARD":
@@ -627,7 +626,6 @@ def render_review():
 # Audit Log
 # ════════════════════════════════════════════════════════════════════════════════
 def render_audit():
-    st.markdown('<div class="page-title">Audit Log</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Immutable record of all create, edit, approve, and reject actions across all domains</div>', unsafe_allow_html=True)
 
     log = st.session_state.audit
@@ -669,7 +667,6 @@ def render_audit():
 def render_import():
     uname = st.session_state.user_name
 
-    st.markdown('<div class="page-title">Bulk Import</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Upload a CSV to stage multiple records for review. Invalid rows are returned as an error report before anything is committed.</div>', unsafe_allow_html=True)
 
     domain = st.selectbox("Target domain", ["Customers","Products","Vendors","Locations"])
@@ -757,11 +754,19 @@ def render_import():
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
-if page in DOMAIN_CONFIG:
-    render_domain_page(page)
-elif page == "Pending Review":
+# Domain area (top) + Governance tabs (bottom)
+render_domain_page(domain_choice)
+
+st.markdown("---")
+st.markdown('<div class="section-header">Governance</div>', unsafe_allow_html=True)
+
+tab_review, tab_audit, tab_import = st.tabs(["⏳  Pending Review", "📋  Audit Log", "⬆  Bulk Import"])
+
+with tab_review:
     render_review()
-elif page == "Audit Log":
+
+with tab_audit:
     render_audit()
-elif page == "Bulk Import":
+
+with tab_import:
     render_import()

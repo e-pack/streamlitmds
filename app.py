@@ -33,6 +33,8 @@ section[data-testid="stSidebar"] {
     border-right: 1px solid #0f3e75;
 }
 section[data-testid="stSidebar"] * { color: #ffffff !important; }
+section[data-testid="stSidebar"] .warn-box,
+section[data-testid="stSidebar"] .warn-box * { color: #000000 !important; }
 section[data-testid="stSidebar"] .stRadio label { font-size: 13px !important; padding: 4px 0; }
 section[data-testid="stSidebar"] .stSelectbox label { font-size: 11px !important; opacity: .75; }
 section[data-testid="stSidebar"] select,

@@ -17,55 +17,146 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
 
+/* ── Base ── */
 html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
 
-section[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #21262d; }
-section[data-testid="stSidebar"] * { color: #c9d1d9 !important; }
-
-.stApp { background-color: #0d1117; color: #c9d1d9; }
-
-[data-testid="metric-container"] {
-    background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 14px 18px;
+/* ── Sidebar ── */
+section[data-testid="stSidebar"] {
+    background-color: #155195;
+    border-right: 1px solid #0f3e75;
 }
-[data-testid="metric-container"] label { color: #8b949e !important; font-size: 11px !important; text-transform: uppercase; letter-spacing: .06em; }
-[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #f0f6fc !important; font-size: 24px !important; font-weight: 500 !important; }
+section[data-testid="stSidebar"] * { color: #ffffff !important; }
+section[data-testid="stSidebar"] .stRadio label { font-size: 13px !important; padding: 4px 0; }
+section[data-testid="stSidebar"] .stSelectbox label { font-size: 11px !important; opacity: .75; }
+section[data-testid="stSidebar"] select,
+section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] * {
+    background-color: #0f3e75 !important;
+    color: #ffffff !important;
+    border-color: #1a65b8 !important;
+}
 
-[data-testid="stDataFrame"] { border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+/* ── App background ── */
+.stApp { background-color: #f5f7fa; color: #1a1f2e; }
 
+/* Main content area white card effect */
+section.main > div { background-color: #ffffff; }
+
+/* ── Metric cards ── */
+[data-testid="metric-container"] {
+    background: #ffffff;
+    border: 1px solid #dde3ed;
+    border-radius: 8px;
+    padding: 14px 18px;
+    box-shadow: 0 1px 3px rgba(21,81,149,.06);
+}
+[data-testid="metric-container"] label {
+    color: #6b7a99 !important; font-size: 11px !important;
+    text-transform: uppercase; letter-spacing: .06em;
+}
+[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    color: #155195 !important; font-size: 24px !important; font-weight: 600 !important;
+}
+[data-testid="metric-container"] [data-testid="stMetricDelta"] {
+    font-size: 11px !important; color: #6b7a99 !important;
+}
+
+/* ── Dataframe ── */
+[data-testid="stDataFrame"] {
+    border: 1px solid #dde3ed; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(21,81,149,.04);
+}
+
+/* ── Buttons ── */
 .stButton > button {
-    background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d;
-    border-radius: 6px; font-family: 'IBM Plex Sans', sans-serif; font-size: 13px;
+    background-color: #ffffff; color: #374161;
+    border: 1px solid #c8d0e0; border-radius: 6px;
+    font-family: 'IBM Plex Sans', sans-serif; font-size: 13px;
     padding: 5px 16px; transition: all .15s;
 }
-.stButton > button:hover { background-color: #30363d; border-color: #8b949e; color: #f0f6fc; }
-
-.primary-btn > button { background-color: #1f6feb !important; border-color: #1f6feb !important; color: white !important; }
-.primary-btn > button:hover { background-color: #388bfd !important; }
-.approve-btn > button { background-color: #238636 !important; border-color: #238636 !important; color: white !important; font-size: 12px !important; }
-.reject-btn  > button { background-color: #da3633 !important; border-color: #da3633 !important; color: white !important; font-size: 12px !important; }
-
-.stTextInput input, .stSelectbox select, .stTextArea textarea {
-    background-color: #0d1117 !important; color: #c9d1d9 !important;
-    border: 1px solid #30363d !important; border-radius: 6px !important;
-    font-family: 'IBM Plex Sans', sans-serif !important; font-size: 13px !important;
+.stButton > button:hover {
+    background-color: #eef2fa; border-color: #155195; color: #155195;
 }
 
-.stTabs [data-baseweb="tab-list"] { background-color: transparent; border-bottom: 1px solid #21262d; gap: 0; }
-.stTabs [data-baseweb="tab"] { background-color: transparent; color: #8b949e; font-size: 13px; padding: 8px 16px; border-bottom: 2px solid transparent; }
-.stTabs [aria-selected="true"] { color: #f0f6fc !important; border-bottom: 2px solid #1f6feb !important; background: transparent !important; }
+.primary-btn > button {
+    background-color: #155195 !important; border-color: #155195 !important; color: #ffffff !important;
+}
+.primary-btn > button:hover { background-color: #0f3e75 !important; }
 
-.page-title    { font-size: 22px; font-weight: 600; color: #f0f6fc; margin-bottom: 4px; }
-.page-subtitle { font-size: 13px; color: #8b949e; margin-bottom: 20px; }
-.section-header { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; color: #8b949e; text-transform: uppercase; letter-spacing: .1em; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid #21262d; }
+.approve-btn > button {
+    background-color: #1a7f37 !important; border-color: #1a7f37 !important;
+    color: #ffffff !important; font-size: 12px !important;
+}
+.approve-btn > button:hover { background-color: #166429 !important; }
 
-.info-box   { background: #102139; border: 1px solid #1f4e8c; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #79c0ff; margin: 12px 0; }
-.warn-box   { background: #2d1f00; border: 1px solid #9e6a03; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #e3b341; margin: 12px 0; }
+.reject-btn > button {
+    background-color: #cf222e !important; border-color: #cf222e !important;
+    color: #ffffff !important; font-size: 12px !important;
+}
+.reject-btn > button:hover { background-color: #a40e26 !important; }
 
-.audit-entry { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 13px; }
+/* ── Form inputs ── */
+.stTextInput input, .stSelectbox select, .stTextArea textarea {
+    background-color: #ffffff !important; color: #1a1f2e !important;
+    border: 1px solid #c8d0e0 !important; border-radius: 6px !important;
+    font-family: 'IBM Plex Sans', sans-serif !important; font-size: 13px !important;
+}
+.stTextInput input:focus, .stSelectbox select:focus {
+    border-color: #155195 !important;
+    box-shadow: 0 0 0 3px rgba(21,81,149,.12) !important;
+}
 
-hr { border-color: #21262d !important; }
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    background-color: transparent; border-bottom: 1px solid #dde3ed; gap: 0;
+}
+.stTabs [data-baseweb="tab"] {
+    background-color: transparent; color: #6b7a99;
+    font-size: 13px; padding: 8px 16px; border-bottom: 2px solid transparent;
+}
+.stTabs [aria-selected="true"] {
+    color: #155195 !important; border-bottom: 2px solid #155195 !important;
+    background: transparent !important; font-weight: 500 !important;
+}
 
-[data-testid="stFileUploader"] { background: #161b22; border: 1px dashed #30363d; border-radius: 8px; }
+/* ── Typography ── */
+.page-title    { font-size: 22px; font-weight: 600; color: #1a1f2e; margin-bottom: 4px; }
+.page-subtitle { font-size: 13px; color: #6b7a99; margin-bottom: 20px; }
+.section-header {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500;
+    color: #6b7a99; text-transform: uppercase; letter-spacing: .1em;
+    margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid #dde3ed;
+}
+
+/* ── Info / warning boxes ── */
+.info-box {
+    background: #eef4ff; border: 1px solid #b3ccee; border-radius: 8px;
+    padding: 12px 16px; font-size: 13px; color: #155195; margin: 12px 0;
+}
+.warn-box {
+    background: #fff8e6; border: 1px solid #f0c060; border-radius: 8px;
+    padding: 12px 16px; font-size: 13px; color: #7a5100; margin: 12px 0;
+}
+
+/* ── Audit entries ── */
+.audit-entry {
+    background: #ffffff; border: 1px solid #dde3ed; border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 8px; font-size: 13px;
+    box-shadow: 0 1px 2px rgba(21,81,149,.04);
+}
+
+/* ── Divider ── */
+hr { border-color: #dde3ed !important; }
+
+/* ── File uploader ── */
+[data-testid="stFileUploader"] {
+    background: #f5f7fa; border: 1px dashed #b3ccee; border-radius: 8px;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    border: 1px solid #dde3ed !important; border-radius: 8px !important;
+    background: #ffffff !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -472,16 +563,16 @@ def render_audit():
     st.markdown(f"**{len(filtered)} entries**")
     st.markdown("---")
 
-    type_colors = {"Approved": "#3fb950", "Rejected": "#f85149", "Submitted": "#79c0ff"}
+    type_colors = {"Approved": "#1a7f37", "Rejected": "#cf222e", "Submitted": "#155195"}
 
     for entry in filtered:
-        color = type_colors.get(entry["type"], "#8b949e")
+        color = type_colors.get(entry["type"], "#6b7a99")
         st.markdown(f"""
         <div class="audit-entry">
             <span style="color:{color};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">{entry['type']}</span>
-            &nbsp;·&nbsp;<span style="color:#8b949e;font-size:11px;font-family:'IBM Plex Mono',monospace">{entry['ts']}</span>
-            &nbsp;·&nbsp;<span style="color:#79c0ff;font-weight:500">{entry['actor']}</span>
-            <div style="margin-top:5px;color:#c9d1d9">{entry['action']}</div>
+            &nbsp;·&nbsp;<span style="color:#6b7a99;font-size:11px;font-family:'IBM Plex Mono',monospace">{entry['ts']}</span>
+            &nbsp;·&nbsp;<span style="color:#155195;font-weight:500">{entry['actor']}</span>
+            <div style="margin-top:5px;color:#1a1f2e">{entry['action']}</div>
         </div>
         """, unsafe_allow_html=True)
 

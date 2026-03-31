@@ -1,464 +1,596 @@
 import streamlit as st
 import pandas as pd
+import uuid
 from datetime import datetime
+import json
 
-st.set_page_config(page_title="Snowflake MDM Workbench", page_icon="❄️", layout="wide")
-
-# -----------------------------
-# Seed data
-# -----------------------------
-if "master_data" not in st.session_state:
-    st.session_state.master_data = pd.DataFrame([
-        {
-            "Customer_ID": "CUST-1001",
-            "Customer_Name": "Acme Health",
-            "Domain": "Customer",
-            "Status": "Approved",
-            "Country": "US",
-            "Region": "NA",
-            "Parent_Customer_ID": "",
-            "Tax_ID": "98-7654321",
-            "Effective_From": "2026-01-01",
-            "Effective_To": "",
-            "Published_Version": "v1.2",
-            "Last_Changed_By": "data.steward",
-            "Last_Changed_At": "2026-03-27 10:15"
-        },
-        {
-            "Customer_ID": "CUST-1002",
-            "Customer_Name": "Northwind Retail",
-            "Domain": "Customer",
-            "Status": "Pending Approval",
-            "Country": "CA",
-            "Region": "NA",
-            "Parent_Customer_ID": "CUST-1001",
-            "Tax_ID": "CA-112233",
-            "Effective_From": "2026-03-01",
-            "Effective_To": "",
-            "Published_Version": "Draft",
-            "Last_Changed_By": "business.user",
-            "Last_Changed_At": "2026-03-30 16:40"
-        },
-        {
-            "Product_ID": "PRD-2001",
-            "Product_Name": "Premium Support",
-            "Domain": "Product",
-            "Status": "Approved",
-            "Category": "Services",
-            "Is_Active": True,
-            "GL_Code": "4100",
-            "Effective_From": "2026-01-15",
-            "Effective_To": "",
-            "Published_Version": "v2.0",
-            "Last_Changed_By": "mdm.admin",
-            "Last_Changed_At": "2026-03-29 09:10"
-        }
-    ])
-
-if "change_requests" not in st.session_state:
-    st.session_state.change_requests = pd.DataFrame([
-        {
-            "CR_ID": "CR-501",
-            "Domain": "Customer",
-            "Entity_Key": "CUST-1002",
-            "Change_Type": "Create",
-            "Requested_By": "business.user",
-            "Approver": "data.owner",
-            "Status": "Pending Approval",
-            "Submitted_At": "2026-03-30 16:42",
-            "Environment": "Dev"
-        },
-        {
-            "CR_ID": "CR-502",
-            "Domain": "Product",
-            "Entity_Key": "PRD-2001",
-            "Change_Type": "Update",
-            "Requested_By": "data.steward",
-            "Approver": "finance.owner",
-            "Status": "Approved",
-            "Submitted_At": "2026-03-29 09:15",
-            "Environment": "Prod"
-        }
-    ])
-
-if "release_log" not in st.session_state:
-    st.session_state.release_log = pd.DataFrame([
-        {"Release": "v2.0", "Environment": "Prod", "Domain": "Product", "Published_By": "mdm.admin", "Published_At": "2026-03-29 10:00", "Notes": "Quarterly curated product publish"},
-        {"Release": "v1.2", "Environment": "Prod", "Domain": "Customer", "Published_By": "data.owner", "Published_At": "2026-03-27 11:30", "Notes": "Approved customer hierarchy refresh"},
-    ])
-
-SCHEMAS = {
-    "Customer": {
-        "columns": [
-            "Customer_ID", "Customer_Name", "Country", "Region", "Parent_Customer_ID",
-            "Tax_ID", "Effective_From", "Effective_To"
-        ],
-        "required": ["Customer_ID", "Customer_Name", "Country", "Effective_From"],
-        "types": {
-            "Customer_ID": "TEXT", "Customer_Name": "TEXT", "Country": "TEXT",
-            "Region": "TEXT", "Parent_Customer_ID": "RELATIONSHIP", "Tax_ID": "TEXT",
-            "Effective_From": "DATE", "Effective_To": "DATE"
-        },
-        "relationships": ["Parent_Customer_ID -> Customer.Customer_ID (self-reference hierarchy)"]
-    },
-    "Product": {
-        "columns": [
-            "Product_ID", "Product_Name", "Category", "Is_Active", "GL_Code",
-            "Effective_From", "Effective_To"
-        ],
-        "required": ["Product_ID", "Product_Name", "Category", "Effective_From"],
-        "types": {
-            "Product_ID": "TEXT", "Product_Name": "TEXT", "Category": "TEXT",
-            "Is_Active": "BOOLEAN", "GL_Code": "TEXT", "Effective_From": "DATE", "Effective_To": "DATE"
-        },
-        "relationships": []
-    }
-}
-
-RULES = {
-    "Customer": [
-        "Customer_ID must be unique",
-        "Customer_Name is required",
-        "Country must be one of: US, CA, UK, DE, IN",
-        "Effective_To cannot be before Effective_From",
-        "Parent_Customer_ID must reference an existing Customer_ID if populated"
-    ],
-    "Product": [
-        "Product_ID must be unique",
-        "Product_Name is required",
-        "Category is required",
-        "Effective_To cannot be before Effective_From"
-    ]
-}
-
-COUNTRY_VALUES = ["US", "CA", "UK", "DE", "IN"]
-ROLE = st.sidebar.selectbox("Role", ["Business User", "Data Steward", "Approver", "MDM Admin"])
-ENV = st.sidebar.radio("Target Environment", ["Dev", "Prod"], horizontal=True)
-DOMAIN = st.sidebar.selectbox("Master Data Domain", ["Customer", "Product"])
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "Workbench",
-        "Change Requests",
-        "Data Quality",
-        "Metadata",
-        "Access & Governance",
-        "Publish / Versioning",
-        "Snowflake Landing"
-    ]
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="MDS Console",
+    page_icon="🔷",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.title("❄️ Snowflake MDM Workbench")
-st.caption("Mock app focused on Excel-like stewardship, rules, approvals, publication, and Snowflake delivery.")
+# ── Custom CSS ─────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
 
-# -----------------------------
-# Helper functions
-# -----------------------------
-def domain_frame(domain: str) -> pd.DataFrame:
-    df = st.session_state.master_data.copy()
-    if domain == "Customer":
-        cols = [c for c in ["Customer_ID", "Customer_Name", "Domain", "Status", "Country", "Region", "Parent_Customer_ID", "Tax_ID", "Effective_From", "Effective_To", "Published_Version", "Last_Changed_By", "Last_Changed_At"] if c in df.columns]
-    else:
-        cols = [c for c in ["Product_ID", "Product_Name", "Domain", "Status", "Category", "Is_Active", "GL_Code", "Effective_From", "Effective_To", "Published_Version", "Last_Changed_By", "Last_Changed_At"] if c in df.columns]
-    filtered = df[df["Domain"] == domain] if "Domain" in df.columns else df
-    return filtered[cols].fillna("")
+html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
 
+section[data-testid="stSidebar"] { background-color: #0d1117; border-right: 1px solid #21262d; }
+section[data-testid="stSidebar"] * { color: #c9d1d9 !important; }
 
-def validate(df: pd.DataFrame, domain: str):
-    issues = []
-    schema = SCHEMAS[domain]
+.stApp { background-color: #0d1117; color: #c9d1d9; }
 
-    # required checks
-    for req in schema["required"]:
-        if req in df.columns:
-            missing = df[df[req].astype(str).str.strip() == ""]
-            for idx in missing.index:
-                issues.append({"Row": idx + 1, "Column": req, "Severity": "Error", "Issue": f"{req} is required"})
+[data-testid="metric-container"] {
+    background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 14px 18px;
+}
+[data-testid="metric-container"] label { color: #8b949e !important; font-size: 11px !important; text-transform: uppercase; letter-spacing: .06em; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #f0f6fc !important; font-size: 24px !important; font-weight: 500 !important; }
 
-    # uniqueness
-    key_col = "Customer_ID" if domain == "Customer" else "Product_ID"
-    if key_col in df.columns:
-        duplicates = df[df[key_col].astype(str).str.strip() != ""][df[key_col].duplicated(keep=False)]
-        for idx in duplicates.index:
-            issues.append({"Row": idx + 1, "Column": key_col, "Severity": "Error", "Issue": f"Duplicate {key_col}"})
+[data-testid="stDataFrame"] { border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
 
-    # date validation
-    if set(["Effective_From", "Effective_To"]).issubset(df.columns):
-        for idx, row in df.iterrows():
-            ef = str(row.get("Effective_From", "")).strip()
-            et = str(row.get("Effective_To", "")).strip()
-            try:
-                ef_dt = pd.to_datetime(ef) if ef else None
-                et_dt = pd.to_datetime(et) if et else None
-                if ef_dt is not None and et_dt is not None and et_dt < ef_dt:
-                    issues.append({"Row": idx + 1, "Column": "Effective_To", "Severity": "Error", "Issue": "Effective_To cannot be before Effective_From"})
-            except Exception:
-                issues.append({"Row": idx + 1, "Column": "Effective_From / Effective_To", "Severity": "Error", "Issue": "Invalid date format"})
+.stButton > button {
+    background-color: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 6px; font-family: 'IBM Plex Sans', sans-serif; font-size: 13px;
+    padding: 5px 16px; transition: all .15s;
+}
+.stButton > button:hover { background-color: #30363d; border-color: #8b949e; color: #f0f6fc; }
 
-    # domain-specific
-    if domain == "Customer":
-        if "Country" in df.columns:
-            invalid_country = df[(df["Country"].astype(str).str.strip() != "") & (~df["Country"].isin(COUNTRY_VALUES))]
-            for idx in invalid_country.index:
-                issues.append({"Row": idx + 1, "Column": "Country", "Severity": "Error", "Issue": "Country outside allowed list"})
+.primary-btn > button { background-color: #1f6feb !important; border-color: #1f6feb !important; color: white !important; }
+.primary-btn > button:hover { background-color: #388bfd !important; }
+.approve-btn > button { background-color: #238636 !important; border-color: #238636 !important; color: white !important; font-size: 12px !important; }
+.reject-btn  > button { background-color: #da3633 !important; border-color: #da3633 !important; color: white !important; font-size: 12px !important; }
 
-        if set(["Parent_Customer_ID", "Customer_ID"]).issubset(df.columns):
-            ids = set(df["Customer_ID"].astype(str).tolist())
-            for idx, row in df.iterrows():
-                parent = str(row.get("Parent_Customer_ID", "")).strip()
-                if parent and parent not in ids:
-                    issues.append({"Row": idx + 1, "Column": "Parent_Customer_ID", "Severity": "Error", "Issue": "Parent_Customer_ID does not exist in Customer_ID"})
+.stTextInput input, .stSelectbox select, .stTextArea textarea {
+    background-color: #0d1117 !important; color: #c9d1d9 !important;
+    border: 1px solid #30363d !important; border-radius: 6px !important;
+    font-family: 'IBM Plex Sans', sans-serif !important; font-size: 13px !important;
+}
 
-    return pd.DataFrame(issues)
+.stTabs [data-baseweb="tab-list"] { background-color: transparent; border-bottom: 1px solid #21262d; gap: 0; }
+.stTabs [data-baseweb="tab"] { background-color: transparent; color: #8b949e; font-size: 13px; padding: 8px 16px; border-bottom: 2px solid transparent; }
+.stTabs [aria-selected="true"] { color: #f0f6fc !important; border-bottom: 2px solid #1f6feb !important; background: transparent !important; }
+
+.page-title    { font-size: 22px; font-weight: 600; color: #f0f6fc; margin-bottom: 4px; }
+.page-subtitle { font-size: 13px; color: #8b949e; margin-bottom: 20px; }
+.section-header { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; color: #8b949e; text-transform: uppercase; letter-spacing: .1em; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid #21262d; }
+
+.info-box   { background: #102139; border: 1px solid #1f4e8c; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #79c0ff; margin: 12px 0; }
+.warn-box   { background: #2d1f00; border: 1px solid #9e6a03; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #e3b341; margin: 12px 0; }
+
+.audit-entry { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; font-size: 13px; }
+
+hr { border-color: #21262d !important; }
+
+[data-testid="stFileUploader"] { background: #161b22; border: 1px dashed #30363d; border-radius: 8px; }
+</style>
+""", unsafe_allow_html=True)
 
 
-# -----------------------------
-# Summary header
-# -----------------------------
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Environment", ENV)
-col2.metric("Role", ROLE)
-col3.metric("Pending Approvals", int((st.session_state.change_requests["Status"] == "Pending Approval").sum()))
-col4.metric("Published Releases", len(st.session_state.release_log))
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def now_str():
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
 
-# -----------------------------
-# Workbench page
-# -----------------------------
-if page == "Workbench":
-    st.subheader(f"{DOMAIN} Workbench")
-    st.write("Business-friendly grid editing with fixed metadata-driven columns. Users can edit values, but they cannot add new columns.")
+def short_id(prefix):
+    return f"{prefix}-{str(uuid.uuid4())[:5].upper()}"
 
-    schema_cols = SCHEMAS[DOMAIN]["columns"]
-    df = domain_frame(DOMAIN)
-    editable_df = df.copy()
 
-    st.info("Column structure is locked by metadata policy. This mock enforces the important requirement: users cannot add a new column.")
+# ── Seed data ─────────────────────────────────────────────────────────────────
+def seed_customers():
+    return pd.DataFrame([
+        {"ID":"CUST-A1B2C","Name":"Apex Manufacturing LLC",  "Segment":"Enterprise", "Region":"Midwest",   "Contact":"Sarah Okafor",  "Email":"s.okafor@apexmfg.com",     "Status":"Active",   "Modified":"2026-03-28","Modified By":"m.patel"},
+        {"ID":"CUST-D3E4F","Name":"Riverstone Retail Group", "Segment":"Mid-Market", "Region":"Southeast", "Contact":"James Liu",      "Email":"j.liu@riverstone.com",      "Status":"Active",   "Modified":"2026-03-27","Modified By":"t.okafor"},
+        {"ID":"CUST-G5H6I","Name":"Nordic Logistics Co.",    "Segment":"Enterprise", "Region":"Northeast", "Contact":"Elsa Varga",     "Email":"e.varga@nordic-log.com",    "Status":"Inactive", "Modified":"2026-03-22","Modified By":"m.patel"},
+        {"ID":"CUST-J7K8L","Name":"Summit Distributors",     "Segment":"SMB",        "Region":"West",      "Contact":"Carlos Mendez",  "Email":"c.mendez@summitdist.com",   "Status":"Active",   "Modified":"2026-03-20","Modified By":"a.chen"},
+        {"ID":"CUST-M9N0O","Name":"Hartley Foods Inc.",      "Segment":"Mid-Market", "Region":"South",     "Contact":"Priya Sharma",   "Email":"p.sharma@hartleyfoods.com", "Status":"Active",   "Modified":"2026-03-18","Modified By":"j.kim"},
+        {"ID":"CUST-P1Q2R","Name":"BlueCrest Partners",      "Segment":"Enterprise", "Region":"Northeast", "Contact":"Tom Fischer",    "Email":"t.fischer@bluecrest.com",   "Status":"Inactive", "Modified":"2026-03-15","Modified By":"t.okafor"},
+    ])
 
-    if DOMAIN == "Customer":
-        column_config = {
-            "Customer_ID": st.column_config.TextColumn(disabled=True, help="System-defined business key"),
-            "Customer_Name": st.column_config.TextColumn(required=True),
-            "Country": st.column_config.SelectboxColumn(options=COUNTRY_VALUES, required=True),
-            "Region": st.column_config.TextColumn(),
-            "Parent_Customer_ID": st.column_config.TextColumn(help="Relationship to another customer"),
-            "Tax_ID": st.column_config.TextColumn(),
-            "Effective_From": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "Effective_To": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "Domain": st.column_config.TextColumn(disabled=True),
-            "Status": st.column_config.TextColumn(disabled=True),
-            "Published_Version": st.column_config.TextColumn(disabled=True),
-            "Last_Changed_By": st.column_config.TextColumn(disabled=True),
-            "Last_Changed_At": st.column_config.TextColumn(disabled=True),
-        }
-    else:
-        column_config = {
-            "Product_ID": st.column_config.TextColumn(disabled=True, help="System-defined business key"),
-            "Product_Name": st.column_config.TextColumn(required=True),
-            "Category": st.column_config.TextColumn(required=True),
-            "Is_Active": st.column_config.CheckboxColumn(),
-            "GL_Code": st.column_config.TextColumn(),
-            "Effective_From": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "Effective_To": st.column_config.DateColumn(format="YYYY-MM-DD"),
-            "Domain": st.column_config.TextColumn(disabled=True),
-            "Status": st.column_config.TextColumn(disabled=True),
-            "Published_Version": st.column_config.TextColumn(disabled=True),
-            "Last_Changed_By": st.column_config.TextColumn(disabled=True),
-            "Last_Changed_At": st.column_config.TextColumn(disabled=True),
-        }
+def seed_products():
+    return pd.DataFrame([
+        {"ID":"SKU-10042","Name":'Industrial Valve 3/4"', "Category":"Hardware",    "UOM":"EA",  "List Price":"$42.00",  "Status":"Active",       "Modified":"2026-03-29","Modified By":"a.chen"},
+        {"ID":"SKU-09981","Name":"Hydraulic Seal Kit",    "Category":"Maintenance", "UOM":"KIT", "List Price":"$118.50", "Status":"Active",       "Modified":"2026-03-27","Modified By":"m.patel"},
+        {"ID":"SKU-09874","Name":'Conveyor Belt 24"',     "Category":"Equipment",   "UOM":"FT",  "List Price":"$9.75",   "Status":"Discontinued", "Modified":"2026-03-22","Modified By":"j.kim"},
+        {"ID":"SKU-10101","Name":"Pressure Gauge 100PSI", "Category":"Instruments", "UOM":"EA",  "List Price":"$67.00",  "Status":"Active",       "Modified":"2026-03-19","Modified By":"a.chen"},
+        {"ID":"SKU-10088","Name":"Grease Fitting Pack",   "Category":"Maintenance", "UOM":"BOX", "List Price":"$14.25",  "Status":"Active",       "Modified":"2026-03-17","Modified By":"t.okafor"},
+    ])
 
-    edited = st.data_editor(
-        editable_df,
-        use_container_width=True,
-        num_rows="dynamic",
-        disabled=[c for c in editable_df.columns if c not in schema_cols],
-        column_config=column_config,
-        key=f"editor_{DOMAIN}"
+def seed_vendors():
+    return pd.DataFrame([
+        {"ID":"VEND-00204","Name":"Global Parts Supply Co.","Category":"Raw Materials","Contact":"R. Santos", "Email":"r.santos@gps.com",   "Status":"Active",   "Modified":"2026-03-29","Modified By":"m.patel"},
+        {"ID":"VEND-00198","Name":"Midwest Tool & Die",     "Category":"Services",     "Contact":"D. Krueger","Email":"d.krueger@mwtd.com", "Status":"Active",   "Modified":"2026-03-22","Modified By":"a.chen"},
+        {"ID":"VEND-00189","Name":"Atlas Freight Partners", "Category":"Logistics",    "Contact":"M. Diallo", "Email":"m.diallo@atlas.com", "Status":"Inactive", "Modified":"2026-03-10","Modified By":"j.kim"},
+        {"ID":"VEND-00177","Name":"PacRim Electronics",     "Category":"Equipment",    "Contact":"S. Tanaka", "Email":"s.tanaka@pacrim.com","Status":"Active",   "Modified":"2026-03-05","Modified By":"t.okafor"},
+    ])
+
+def seed_locations():
+    return pd.DataFrame([
+        {"ID":"LOC-00041","Name":"Columbus Distribution Hub","Type":"Warehouse","Address":"1200 Polaris Pkwy",   "City":"Columbus",  "State":"OH","Status":"Active",   "Modified":"2026-03-29","Modified By":"m.patel"},
+        {"ID":"LOC-00038","Name":"Cleveland Retail Center",  "Type":"Store",    "Address":"4401 Rockside Rd",    "City":"Cleveland", "State":"OH","Status":"Active",   "Modified":"2026-03-25","Modified By":"a.chen"},
+        {"ID":"LOC-00031","Name":"Cincinnati Office",        "Type":"Office",   "Address":"525 Vine St Ste 1800","City":"Cincinnati","State":"OH","Status":"Active",   "Modified":"2026-03-20","Modified By":"j.kim"},
+        {"ID":"LOC-00027","Name":"Dayton Warehouse",         "Type":"Warehouse","Address":"801 E 2nd St",         "City":"Dayton",    "State":"OH","Status":"Inactive", "Modified":"2026-03-01","Modified By":"t.okafor"},
+    ])
+
+def seed_staging():
+    return pd.DataFrame([
+        {"ID":"STG-001","Domain":"Customers","Record ID":"CUST-NEW01","Record Name":"Nordic Logistics Co.",       "Change Type":"New Record","Status":"Pending","Submitted By":"j.kim",   "Submitted At":"2026-03-26 09:14","Reviewed By":"","Reviewed At":"","Payload":json.dumps({"Name":"Nordic Logistics Co.","Segment":"Enterprise","Region":"Northeast","Contact":"Elsa Varga","Email":"e.varga@nordic.com","Status":"Active"}),"Notes":""},
+        {"ID":"STG-002","Domain":"Customers","Record ID":"CUST-A1B2C","Record Name":"Apex Manufacturing LLC",    "Change Type":"Edit",       "Status":"Pending","Submitted By":"t.okafor","Submitted At":"2026-03-25 14:02","Reviewed By":"","Reviewed At":"","Payload":json.dumps({"Region":"Midwest (was: Southeast)"}),"Notes":"Region correction per account team"},
+        {"ID":"STG-003","Domain":"Products", "Record ID":"SKU-NEW01", "Record Name":'Pressure Relief Valve 1/2"',"Change Type":"New Record","Status":"Pending","Submitted By":"a.chen",  "Submitted At":"2026-03-24 11:30","Reviewed By":"","Reviewed At":"","Payload":json.dumps({"Name":'Pressure Relief Valve 1/2"',"Category":"Hardware","UOM":"EA","List Price":"$54.00","Status":"Active"}),"Notes":""},
+    ])
+
+def seed_audit():
+    return [
+        {"ts":"2026-03-28 10:42","actor":"m.patel",  "action":"Approved edit on CUST-A1B2C — Region: Southeast → Midwest",       "domain":"Customers","type":"Approved"},
+        {"ts":"2026-03-27 15:10","actor":"m.patel",  "action":"Approved new record CUST-D3E4F (Riverstone Retail Group)",         "domain":"Customers","type":"Approved"},
+        {"ts":"2026-03-25 14:02","actor":"t.okafor", "action":"Submitted edit on CUST-A1B2C — Region correction",                 "domain":"Customers","type":"Submitted"},
+        {"ts":"2026-03-24 11:30","actor":"a.chen",   "action":'Submitted new product SKU-NEW01 (Pressure Relief Valve 1/2")',     "domain":"Products", "type":"Submitted"},
+        {"ts":"2026-03-22 09:00","actor":"j.kim",    "action":"Rejected new record — duplicate email detected (VEND-00204)",      "domain":"Vendors",  "type":"Rejected"},
+        {"ts":"2026-03-20 16:45","actor":"m.patel",  "action":"Approved status change CUST-P1Q2R → Inactive",                    "domain":"Customers","type":"Approved"},
+        {"ts":"2026-03-18 08:30","actor":"a.chen",   "action":"Submitted new location LOC-00041 (Columbus Distribution Hub)",     "domain":"Locations","type":"Submitted"},
+        {"ts":"2026-03-15 11:20","actor":"r.santos", "action":"Approved new vendor VEND-00204 (Global Parts Supply Co.)",         "domain":"Vendors",  "type":"Approved"},
+    ]
+
+
+# ── Session state ─────────────────────────────────────────────────────────────
+def init_state():
+    defaults = {
+        "customers": seed_customers(),
+        "products":  seed_products(),
+        "vendors":   seed_vendors(),
+        "locations": seed_locations(),
+        "staging":   seed_staging(),
+        "audit":     seed_audit(),
+        "user_role": "MDS_STEWARD",
+        "user_name": "m.patel",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+init_state()
+
+
+# ── Domain config ─────────────────────────────────────────────────────────────
+DOMAIN_CONFIG = {
+    "Customers": {
+        "df_key": "customers",
+        "prefix": "CUST",
+        "display_cols": ["ID","Name","Segment","Region","Contact","Email","Status","Modified","Modified By"],
+        "fields": [
+            ("Name",    "text",   "Company name",                                            True),
+            ("Segment", "select", ["Enterprise","Mid-Market","SMB"],                         False),
+            ("Region",  "select", ["Northeast","Southeast","Midwest","South","West"],        False),
+            ("Contact", "text",   "Primary contact name",                                   False),
+            ("Email",   "text",   "contact@company.com",                                    False),
+            ("Status",  "select", ["Active","Inactive"],                                     False),
+        ],
+    },
+    "Products": {
+        "df_key": "products",
+        "prefix": "SKU",
+        "display_cols": ["ID","Name","Category","UOM","List Price","Status","Modified","Modified By"],
+        "fields": [
+            ("Name",       "text",   "Product name",                                              True),
+            ("Category",   "select", ["Hardware","Maintenance","Equipment","Instruments","Materials"], False),
+            ("UOM",        "select", ["EA","KIT","BOX","FT","LB"],                               False),
+            ("List Price", "text",   "$0.00",                                                    False),
+            ("Status",     "select", ["Active","Discontinued"],                                  False),
+        ],
+    },
+    "Vendors": {
+        "df_key": "vendors",
+        "prefix": "VEND",
+        "display_cols": ["ID","Name","Category","Contact","Email","Status","Modified","Modified By"],
+        "fields": [
+            ("Name",     "text",   "Vendor name",                                         True),
+            ("Category", "select", ["Raw Materials","Services","Equipment","Logistics"],   False),
+            ("Contact",  "text",   "Contact name",                                        False),
+            ("Email",    "text",   "contact@vendor.com",                                  False),
+            ("Status",   "select", ["Active","Inactive"],                                 False),
+        ],
+    },
+    "Locations": {
+        "df_key": "locations",
+        "prefix": "LOC",
+        "display_cols": ["ID","Name","Type","Address","City","State","Status","Modified","Modified By"],
+        "fields": [
+            ("Name",    "text",   "Location name",                                        True),
+            ("Type",    "select", ["Warehouse","Store","Office","Distribution"],           False),
+            ("Address", "text",   "Street address",                                       True),
+            ("City",    "text",   "City",                                                 False),
+            ("State",   "select", ["OH","IN","KY","MI","IL","PA","NY","TX","CA","WA"],    False),
+            ("Status",  "select", ["Active","Inactive"],                                  False),
+        ],
+    },
+}
+
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### 🔷 MDS Console")
+    st.markdown("---")
+    st.markdown('<div class="section-header">Session</div>', unsafe_allow_html=True)
+
+    role = st.selectbox("Active role", ["MDS_STEWARD","MDS_CONTRIBUTOR"])
+    st.session_state.user_role = role
+
+    uname = st.selectbox("Logged in as", ["m.patel","j.kim","t.okafor","a.chen","r.santos"])
+    st.session_state.user_name = uname
+
+    st.markdown("---")
+    st.markdown('<div class="section-header">Domains</div>', unsafe_allow_html=True)
+
+    pending_count = len(st.session_state.staging[st.session_state.staging["Status"] == "Pending"])
+
+    page = st.radio(
+        "nav",
+        ["Customers","Products","Vendors","Locations","—","Pending Review","Audit Log","Bulk Import"],
+        label_visibility="collapsed",
     )
 
-    c1, c2, c3 = st.columns([1, 1, 2])
-    with c1:
-        if st.button("Validate", use_container_width=True):
-            issues = validate(edited, DOMAIN)
-            if issues.empty:
-                st.success("No validation issues found. Ready for submission.")
+    if pending_count > 0:
+        st.markdown(f'<div class="warn-box">⏳ {pending_count} record(s) awaiting review</div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.caption("Mock mode — no Snowflake connection")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Domain page
+# ════════════════════════════════════════════════════════════════════════════════
+def render_domain_page(domain):
+    cfg   = DOMAIN_CONFIG[domain]
+    df    = st.session_state[cfg["df_key"]]
+    uname = st.session_state.user_name
+
+    # Header row
+    col_title, col_btn = st.columns([6, 1])
+    with col_title:
+        st.markdown(f'<div class="page-title">{domain}</div>', unsafe_allow_html=True)
+        total   = len(df)
+        active  = len(df[df["Status"] == "Active"])
+        pending = len(st.session_state.staging[
+            (st.session_state.staging["Domain"] == domain) &
+            (st.session_state.staging["Status"] == "Pending")
+        ])
+        st.markdown(f'<div class="page-subtitle">{total} records · {active} active · {pending} pending review</div>', unsafe_allow_html=True)
+    with col_btn:
+        st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
+        add_clicked = st.button("＋ Add record", key=f"add_{domain}", use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Stat cards
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Records",  f"{total:,}")
+    m2.metric("Active",         f"{active:,}", f"{round(active/total*100)}% of total" if total else "")
+    m3.metric("Inactive",       f"{total-active:,}")
+    m4.metric("Pending Review", f"{pending}")
+
+    st.markdown("---")
+
+    # Tabs
+    tab_all, tab_active, tab_inactive = st.tabs(["All records", "Active", "Inactive"])
+
+    def show_table(tab, status_filter=None):
+        with tab:
+            data = df if status_filter is None else df[df["Status"] == status_filter]
+            search = st.text_input("", placeholder=f"🔍  Search {domain.lower()}...",
+                                   key=f"search_{domain}_{status_filter}", label_visibility="collapsed")
+            if search:
+                mask = data.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
+                data = data[mask]
+            st.dataframe(data[cfg["display_cols"]], use_container_width=True, hide_index=True,
+                         column_config={"Modified": st.column_config.DateColumn("Modified", format="MMM DD, YYYY")})
+            st.caption(f"{len(data)} records")
+
+    show_table(tab_all)
+    show_table(tab_active, "Active")
+    show_table(tab_inactive, "Inactive")
+
+    # Add record form
+    if add_clicked:
+        st.session_state[f"show_form_{domain}"] = True
+
+    if st.session_state.get(f"show_form_{domain}"):
+        st.markdown("---")
+        st.markdown(f'<div class="section-header">New record — {domain}</div>', unsafe_allow_html=True)
+
+        with st.form(key=f"form_{domain}", clear_on_submit=True):
+            values = {}
+            fields = cfg["fields"]
+            i = 0
+            while i < len(fields):
+                fname, ftype, fopts, full = fields[i]
+                if full:
+                    values[fname] = st.text_input(fname, placeholder=fopts if isinstance(fopts, str) else "") \
+                        if ftype == "text" else st.selectbox(fname, fopts)
+                    i += 1
+                else:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        values[fname] = st.text_input(fname, placeholder=fopts if isinstance(fopts, str) else "") \
+                            if ftype == "text" else st.selectbox(fname, fopts)
+                    i += 1
+                    if i < len(fields) and not fields[i][3]:
+                        fname2, ftype2, fopts2, _ = fields[i]
+                        with c2:
+                            values[fname2] = st.text_input(fname2, placeholder=fopts2 if isinstance(fopts2, str) else "") \
+                                if ftype2 == "text" else st.selectbox(fname2, fopts2)
+                        i += 1
+
+            notes = st.text_area("Notes (optional)", placeholder="Context for the reviewing steward...")
+
+            col_cancel, _, col_draft, col_submit = st.columns([1, 3, 1.5, 1.5])
+            cancel = col_cancel.form_submit_button("Cancel")
+            draft  = col_draft.form_submit_button("Save draft")
+            submit = col_submit.form_submit_button("Submit for review", type="primary")
+
+            if cancel:
+                st.session_state[f"show_form_{domain}"] = False
+                st.rerun()
+
+            if submit or draft:
+                name_val = values.get("Name", "").strip()
+                if not name_val:
+                    st.error("Name is required.")
+                else:
+                    new_id  = short_id(cfg["prefix"])
+                    stg_id  = f"STG-{str(uuid.uuid4())[:4].upper()}"
+                    status  = "Pending" if submit else "Draft"
+                    new_stg = {
+                        "ID": stg_id, "Domain": domain,
+                        "Record ID": new_id, "Record Name": name_val,
+                        "Change Type": "New Record", "Status": status,
+                        "Submitted By": uname, "Submitted At": now_str(),
+                        "Reviewed By": "", "Reviewed At": "",
+                        "Payload": json.dumps(values), "Notes": notes,
+                    }
+                    st.session_state.staging = pd.concat(
+                        [st.session_state.staging, pd.DataFrame([new_stg])], ignore_index=True)
+                    st.session_state.audit.insert(0, {
+                        "ts": now_str(), "actor": uname,
+                        "action": f"Submitted new {domain[:-1]} record — {name_val} ({new_id})",
+                        "domain": domain, "type": "Submitted",
+                    })
+                    st.session_state[f"show_form_{domain}"] = False
+                    label = "staged for review" if submit else "saved as draft"
+                    st.success(f"✓ Record {label}. Assigned ID: `{new_id}`")
+                    st.rerun()
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Pending Review
+# ════════════════════════════════════════════════════════════════════════════════
+def render_review():
+    uname = st.session_state.user_name
+    role  = st.session_state.user_role
+
+    st.markdown('<div class="page-title">Pending Review</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Records submitted by contributors, awaiting steward approval before writing to master tables</div>', unsafe_allow_html=True)
+
+    if role != "MDS_STEWARD":
+        st.markdown('<div class="warn-box">⚠️ You need the MDS_STEWARD role to approve or reject records. Switch your role in the sidebar.</div>', unsafe_allow_html=True)
+
+    pending = st.session_state.staging[st.session_state.staging["Status"] == "Pending"].copy()
+
+    if pending.empty:
+        st.success("✓ No records pending review.")
+        return
+
+    st.markdown(f"**{len(pending)} record(s) awaiting action**")
+    st.markdown("---")
+
+    for _, row in pending.iterrows():
+        icon  = "🆕" if row["Change Type"] == "New Record" else "✏️"
+        label = f"{icon}  **{row['Record Name']}**  ·  {row['Domain']}  ·  submitted by `{row['Submitted By']}`  ·  {row['Submitted At']}"
+
+        with st.expander(label, expanded=True):
+            c_detail, c_actions = st.columns([4, 1])
+
+            with c_detail:
+                st.markdown(f"**Change type:** {row['Change Type']}  &nbsp;·&nbsp;  **Assigned ID:** `{row['Record ID']}`")
+                try:
+                    payload = json.loads(row["Payload"])
+                    st.markdown("**Proposed values:**")
+                    for k, v in payload.items():
+                        st.markdown(f"&emsp;`{k}` → **{v}**")
+                except Exception:
+                    st.code(row["Payload"])
+                if row["Notes"]:
+                    st.markdown(f"**Submitter notes:** {row['Notes']}")
+
+            with c_actions:
+                if role == "MDS_STEWARD":
+                    st.markdown('<div class="approve-btn">', unsafe_allow_html=True)
+                    if st.button("✓ Approve", key=f"approve_{row['ID']}"):
+                        idx = st.session_state.staging.index[st.session_state.staging["ID"] == row["ID"]].tolist()[0]
+                        st.session_state.staging.at[idx, "Status"]      = "Approved"
+                        st.session_state.staging.at[idx, "Reviewed By"] = uname
+                        st.session_state.staging.at[idx, "Reviewed At"] = now_str()
+
+                        # Write to master on new record approval
+                        if row["Change Type"] == "New Record":
+                            cfg = DOMAIN_CONFIG[row["Domain"]]
+                            try:
+                                payload = json.loads(row["Payload"])
+                            except Exception:
+                                payload = {}
+                            master_row = {"ID": row["Record ID"], **payload,
+                                          "Modified": now_str()[:10], "Modified By": uname}
+                            existing = st.session_state[cfg["df_key"]]
+                            for col in existing.columns:
+                                if col not in master_row:
+                                    master_row[col] = ""
+                            st.session_state[cfg["df_key"]] = pd.concat(
+                                [existing, pd.DataFrame([master_row])], ignore_index=True)
+
+                        st.session_state.audit.insert(0, {
+                            "ts": now_str(), "actor": uname,
+                            "action": f"Approved {row['Change Type'].lower()} — {row['Record Name']} ({row['Record ID']})",
+                            "domain": row["Domain"], "type": "Approved",
+                        })
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    st.markdown('<div class="reject-btn">', unsafe_allow_html=True)
+                    if st.button("✕ Reject", key=f"reject_{row['ID']}"):
+                        idx = st.session_state.staging.index[st.session_state.staging["ID"] == row["ID"]].tolist()[0]
+                        st.session_state.staging.at[idx, "Status"]      = "Rejected"
+                        st.session_state.staging.at[idx, "Reviewed By"] = uname
+                        st.session_state.staging.at[idx, "Reviewed At"] = now_str()
+                        st.session_state.audit.insert(0, {
+                            "ts": now_str(), "actor": uname,
+                            "action": f"Rejected {row['Change Type'].lower()} — {row['Record Name']} ({row['Record ID']})",
+                            "domain": row["Domain"], "type": "Rejected",
+                        })
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.caption("Steward role required to act")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Audit Log
+# ════════════════════════════════════════════════════════════════════════════════
+def render_audit():
+    st.markdown('<div class="page-title">Audit Log</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Immutable record of all create, edit, approve, and reject actions across all domains</div>', unsafe_allow_html=True)
+
+    log = st.session_state.audit
+
+    fc1, fc2, _ = st.columns([2, 2, 4])
+    domain_filter = fc1.selectbox("Domain", ["All","Customers","Products","Vendors","Locations"])
+    type_filter   = fc2.selectbox("Action type", ["All","Submitted","Approved","Rejected"])
+
+    filtered = [e for e in log
+                if (domain_filter == "All" or e["domain"] == domain_filter)
+                and (type_filter  == "All" or e["type"]   == type_filter)]
+
+    st.markdown(f"**{len(filtered)} entries**")
+    st.markdown("---")
+
+    type_colors = {"Approved": "#3fb950", "Rejected": "#f85149", "Submitted": "#79c0ff"}
+
+    for entry in filtered:
+        color = type_colors.get(entry["type"], "#8b949e")
+        st.markdown(f"""
+        <div class="audit-entry">
+            <span style="color:{color};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">{entry['type']}</span>
+            &nbsp;·&nbsp;<span style="color:#8b949e;font-size:11px;font-family:'IBM Plex Mono',monospace">{entry['ts']}</span>
+            &nbsp;·&nbsp;<span style="color:#79c0ff;font-weight:500">{entry['actor']}</span>
+            <div style="margin-top:5px;color:#c9d1d9">{entry['action']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    if filtered:
+        csv = pd.DataFrame(filtered).to_csv(index=False)
+        st.download_button("⬇ Export audit log (CSV)", data=csv,
+                           file_name="mds_audit_log.csv", mime="text/csv")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Bulk Import
+# ════════════════════════════════════════════════════════════════════════════════
+def render_import():
+    uname = st.session_state.user_name
+
+    st.markdown('<div class="page-title">Bulk Import</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Upload a CSV to stage multiple records for review. Invalid rows are returned as an error report before anything is committed.</div>', unsafe_allow_html=True)
+
+    domain = st.selectbox("Target domain", ["Customers","Products","Vendors","Locations"])
+
+    TEMPLATES = {
+        "Customers": "Name,Segment,Region,Contact,Email,Status\nAcme Corp,Enterprise,Midwest,John Doe,j.doe@acme.com,Active\nBeta LLC,SMB,West,Jane Smith,j.smith@beta.com,Active",
+        "Products":  "Name,Category,UOM,List Price,Status\nWidget A,Hardware,EA,$10.00,Active\nSeal Kit B,Maintenance,KIT,$45.00,Active",
+        "Vendors":   "Name,Category,Contact,Email,Status\nParts Co,Raw Materials,Jane Doe,j.doe@parts.com,Active",
+        "Locations": "Name,Type,Address,City,State,Status\nMain Office,Office,100 Main St,Columbus,OH,Active",
+    }
+
+    col_dl, _ = st.columns([2, 4])
+    with col_dl:
+        st.download_button(
+            f"⬇ Download {domain} template",
+            data=TEMPLATES[domain],
+            file_name=f"mds_{domain.lower()}_template.csv",
+            mime="text/csv",
+        )
+
+    st.markdown('<div class="info-box">ℹ️ Rows with missing Name or invalid Email will be flagged in an error report. Valid rows proceed to staging independently.</div>', unsafe_allow_html=True)
+
+    uploaded = st.file_uploader("Upload CSV", type=["csv"])
+
+    if uploaded:
+        try:
+            df_upload = pd.read_csv(uploaded)
+        except Exception as e:
+            st.error(f"Could not parse file: {e}")
+            return
+
+        st.markdown(f"**{len(df_upload)} rows detected — preview:**")
+        st.dataframe(df_upload.head(10), use_container_width=True, hide_index=True)
+
+        # Validate
+        errors, valid_rows = [], []
+        for i, row in df_upload.iterrows():
+            errs = []
+            name = str(row.get("Name", "")).strip()
+            if not name:
+                errs.append("Name is required")
+            email = str(row.get("Email", ""))
+            if email and "@" not in email:
+                errs.append("Invalid email format")
+            if errs:
+                errors.append({"Row": i+2, "Name": name or "(blank)", "Issues": "; ".join(errs)})
             else:
-                st.warning(f"Found {len(issues)} issue(s).")
-                st.dataframe(issues, use_container_width=True)
-    with c2:
-        if st.button("Submit Change Request", use_container_width=True):
-            new_cr = {
-                "CR_ID": f"CR-{500 + len(st.session_state.change_requests) + 1}",
-                "Domain": DOMAIN,
-                "Entity_Key": edited.iloc[-1]["Customer_ID"] if DOMAIN == "Customer" else edited.iloc[-1]["Product_ID"],
-                "Change_Type": "Update",
-                "Requested_By": ROLE.replace(" ", ".").lower(),
-                "Approver": "data.owner",
-                "Status": "Pending Approval",
-                "Submitted_At": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Environment": ENV
-            }
-            st.session_state.change_requests = pd.concat([st.session_state.change_requests, pd.DataFrame([new_cr])], ignore_index=True)
-            st.success("Change request submitted for approval workflow.")
-    with c3:
-        st.caption("Typical flow: business edit -> steward validation -> approver signoff -> publish to curated Snowflake layer.")
+                valid_rows.append(row)
 
-# -----------------------------
-# Change requests
-# -----------------------------
-elif page == "Change Requests":
-    st.subheader("Access Control & Governance Workflow")
-    st.write("Role-based approval queue for data stewards, owners, and administrators.")
-    st.dataframe(st.session_state.change_requests, use_container_width=True)
+        m1, m2 = st.columns(2)
+        m1.metric("Valid rows",  len(valid_rows))
+        m2.metric("Error rows", len(errors))
 
-    pending = st.session_state.change_requests[st.session_state.change_requests["Status"] == "Pending Approval"]
-    if not pending.empty:
-        selected = st.selectbox("Select pending CR", pending["CR_ID"].tolist())
-        d1, d2, d3 = st.columns(3)
-        with d1:
-            if st.button("Approve", use_container_width=True):
-                st.session_state.change_requests.loc[st.session_state.change_requests["CR_ID"] == selected, "Status"] = "Approved"
-                st.success(f"{selected} approved.")
-        with d2:
-            if st.button("Reject", use_container_width=True):
-                st.session_state.change_requests.loc[st.session_state.change_requests["CR_ID"] == selected, "Status"] = "Rejected"
-                st.warning(f"{selected} rejected.")
-        with d3:
-            st.text_input("Comment", placeholder="Reason / approval note")
-    else:
-        st.success("No items waiting for approval.")
+        if errors:
+            st.warning(f"{len(errors)} row(s) have validation errors and will not be staged.")
+            st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
+            st.download_button("⬇ Download error report", data=pd.DataFrame(errors).to_csv(index=False),
+                               file_name="mds_import_errors.csv", mime="text/csv")
 
-# -----------------------------
-# Data quality
-# -----------------------------
-elif page == "Data Quality":
-    st.subheader(f"{DOMAIN} Data Quality Rules")
-    left, right = st.columns([1, 2])
-    with left:
-        st.markdown("**Configured rules**")
-        for rule in RULES[DOMAIN]:
-            st.write(f"- {rule}")
-    with right:
-        issues = validate(domain_frame(DOMAIN), DOMAIN)
-        if issues.empty:
-            st.success("Current published slice has no issues.")
-        else:
-            st.dataframe(issues, use_container_width=True)
+        if valid_rows:
+            st.markdown('<div class="primary-btn">', unsafe_allow_html=True)
+            if st.button(f"Stage {len(valid_rows)} valid row(s) for review"):
+                cfg = DOMAIN_CONFIG[domain]
+                for row in valid_rows:
+                    new_id  = short_id(cfg["prefix"])
+                    stg_id  = f"STG-{str(uuid.uuid4())[:4].upper()}"
+                    payload = {k: str(v) for k, v in row.items() if pd.notna(v)}
+                    new_stg = {
+                        "ID": stg_id, "Domain": domain,
+                        "Record ID": new_id, "Record Name": str(row.get("Name", "")),
+                        "Change Type": "New Record", "Status": "Pending",
+                        "Submitted By": uname, "Submitted At": now_str(),
+                        "Reviewed By": "", "Reviewed At": "",
+                        "Payload": json.dumps(payload), "Notes": "Bulk import batch",
+                    }
+                    st.session_state.staging = pd.concat(
+                        [st.session_state.staging, pd.DataFrame([new_stg])], ignore_index=True)
+                st.session_state.audit.insert(0, {
+                    "ts": now_str(), "actor": uname,
+                    "action": f"Bulk import — {len(valid_rows)} {domain.lower()} records staged for review",
+                    "domain": domain, "type": "Submitted",
+                })
+                st.success(f"✓ {len(valid_rows)} records staged. Go to Pending Review to approve.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-# -----------------------------
-# Metadata
-# -----------------------------
-elif page == "Metadata":
-    st.subheader(f"{DOMAIN} Metadata Management")
-    schema = SCHEMAS[DOMAIN]
-    meta_df = pd.DataFrame([
-        {"Column": col, "Data Type": schema["types"].get(col, "TEXT"), "Required": col in schema["required"], "Editable by Business": True if col in schema["columns"] else False}
-        for col in schema["columns"]
-    ])
-    st.dataframe(meta_df, use_container_width=True)
 
-    st.markdown("**Relationships**")
-    if schema["relationships"]:
-        for rel in schema["relationships"]:
-            st.write(f"- {rel}")
-    else:
-        st.caption("No relationships configured for this domain in the current mock.")
-
-    st.warning("Schema governance is centralized. New columns are introduced through admin-controlled metadata promotion, not end-user editing.")
-
-# -----------------------------
-# Governance
-# -----------------------------
-elif page == "Access & Governance":
-    st.subheader("Role Model and Workflow Controls")
-    access_df = pd.DataFrame([
-        {"Role": "Business User", "Create/Edit Values": True, "Approve": False, "Publish": False, "Add/Remove Columns": False},
-        {"Role": "Data Steward", "Create/Edit Values": True, "Approve": False, "Publish": False, "Add/Remove Columns": False},
-        {"Role": "Approver", "Create/Edit Values": False, "Approve": True, "Publish": False, "Add/Remove Columns": False},
-        {"Role": "MDM Admin", "Create/Edit Values": True, "Approve": True, "Publish": True, "Add/Remove Columns": True},
-    ])
-    st.dataframe(access_df, use_container_width=True)
-    st.markdown("**Workflow**")
-    st.write("1. Business-friendly edit in Dev workbench")
-    st.write("2. Automated rule validation")
-    st.write("3. Submit change request")
-    st.write("4. Approval and audit trail")
-    st.write("5. Publish curated version to Prod")
-
-# -----------------------------
-# Publish
-# -----------------------------
-elif page == "Publish / Versioning":
-    st.subheader("Publication / Version Control")
-    st.write("Separate Dev and Prod layers with explicit publish action for curated master data.")
-    st.dataframe(st.session_state.release_log, use_container_width=True)
-
-    p1, p2, p3 = st.columns(3)
-    with p1:
-        release_name = st.text_input("Release tag", value=f"v{len(st.session_state.release_log)+1}.0")
-    with p2:
-        promote_domain = st.selectbox("Domain to publish", ["Customer", "Product"])
-    with p3:
-        if st.button("Publish to Prod", use_container_width=True):
-            release = {
-                "Release": release_name,
-                "Environment": "Prod",
-                "Domain": promote_domain,
-                "Published_By": ROLE.replace(" ", ".").lower(),
-                "Published_At": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "Notes": "Published from approved Dev baseline"
-            }
-            st.session_state.release_log = pd.concat([pd.DataFrame([release]), st.session_state.release_log], ignore_index=True)
-            st.success(f"Published {promote_domain} as {release_name} to Prod curated layer.")
-
-# -----------------------------
-# Snowflake landing
-# -----------------------------
-elif page == "Snowflake Landing":
-    st.subheader("Snowflake Integration")
-    st.code(
-        """
-RAW / STAGE -> MDM_DEV -> APPROVAL_QUEUE -> MDM_PROD_CURATED -> CONSUMPTION
-
-Example publish pattern:
-- Business edits stored in DEV working table
-- Valid records flow through approval task / stream
-- Approved snapshot written to curated PROD table
-- Consumers read stable published version or current view
-        """,
-        language="sql"
-    )
-
-    landing_df = pd.DataFrame([
-        {"Object": "MDM_DEV.CUSTOMER_WORKING", "Purpose": "Business-editable draft records", "Versioned": "Draft"},
-        {"Object": "MDM_DEV.CHANGE_REQUESTS", "Purpose": "Approval workflow state", "Versioned": "N/A"},
-        {"Object": "MDM_PROD.CUSTOMER_CURATED", "Purpose": "Published customer golden records", "Versioned": "Yes"},
-        {"Object": "MDM_PROD.CUSTOMER_CURRENT_VW", "Purpose": "Latest approved view for consumers", "Versioned": "Current"},
-    ])
-    st.dataframe(landing_df, use_container_width=True)
-
-    st.markdown("**Illustrative Snowflake-native pattern**")
-    st.code(
-        """
-CREATE OR REPLACE TABLE MDM_DEV.CUSTOMER_WORKING (...);
-CREATE OR REPLACE TABLE MDM_DEV.CHANGE_REQUESTS (...);
-CREATE OR REPLACE TABLE MDM_PROD.CUSTOMER_CURATED (..., PUBLISHED_VERSION STRING);
-
--- publish action
-INSERT INTO MDM_PROD.CUSTOMER_CURATED
-SELECT *, 'v2.1' AS PUBLISHED_VERSION
-FROM MDM_DEV.CUSTOMER_WORKING
-WHERE VALIDATION_STATUS = 'PASS'
-  AND APPROVAL_STATUS = 'APPROVED';
-        """,
-        language="sql"
-    )
-
-st.divider()
-with st.expander("Design notes captured in this mock"):
-    st.write("- Excel-like editing experience via grid editor")
-    st.write("- Data quality rules and validation")
-    st.write("- Locked column structure for governed schema")
-    st.write("- Metadata-driven data types and relationships")
-    st.write("- Access control and approvals")
-    st.write("- Snowflake landing and curated publication")
-    st.write("- Dev / Prod separation and explicit versioning")
+# ── Router ────────────────────────────────────────────────────────────────────
+if page in DOMAIN_CONFIG:
+    render_domain_page(page)
+elif page == "Pending Review":
+    render_review()
+elif page == "Audit Log":
+    render_audit()
+elif page == "Bulk Import":
+    render_import()

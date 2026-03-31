@@ -12,6 +12,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Force light theme so native widgets match our palette
+st._config.set_option("theme.base", "light")
+st._config.set_option("theme.primaryColor", "#155195")
+st._config.set_option("theme.backgroundColor", "#ffffff")
+st._config.set_option("theme.secondaryBackgroundColor", "#f5f7fa")
+st._config.set_option("theme.textColor", "#1a1f2e")
+
 # ── Custom CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -60,11 +67,37 @@ section.main > div { background-color: #ffffff; }
     font-size: 11px !important; color: #6b7a99 !important;
 }
 
-/* ── Dataframe ── */
+/* ── Dataframe iframe override ── */
 [data-testid="stDataFrame"] {
     border: 1px solid #dde3ed; border-radius: 8px; overflow: hidden;
     box-shadow: 0 1px 3px rgba(21,81,149,.04);
 }
+[data-testid="stDataFrame"] iframe { background: #ffffff !important; }
+
+/* ── HTML table (replaces st.dataframe) ── */
+.mds-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mds-table thead tr { background: #f0f4fb; }
+.mds-table th {
+    text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 600;
+    color: #6b7a99; text-transform: uppercase; letter-spacing: .05em;
+    border-bottom: 1px solid #dde3ed; white-space: nowrap;
+}
+.mds-table td {
+    padding: 10px 14px; color: #1a1f2e; border-bottom: 1px solid #eef1f7;
+    vertical-align: middle;
+}
+.mds-table tbody tr:last-child td { border-bottom: none; }
+.mds-table tbody tr:hover td { background: #f5f8ff; }
+.mds-table .mono { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #155195; }
+.mds-table .muted { color: #6b7a99; font-size: 12px; }
+.mds-table-wrap {
+    background: #ffffff; border: 1px solid #dde3ed; border-radius: 10px;
+    overflow: hidden; box-shadow: 0 1px 4px rgba(21,81,149,.06); margin-bottom: 8px;
+}
+.badge-active        { background:#eaf7ee; color:#166429; border:1px solid #b3e6c0; padding:2px 9px; border-radius:12px; font-size:11px; font-weight:600; white-space:nowrap; }
+.badge-inactive      { background:#f3f4f6; color:#6b7a99; border:1px solid #dde3ed; padding:2px 9px; border-radius:12px; font-size:11px; font-weight:600; white-space:nowrap; }
+.badge-discontinued  { background:#fff4e5; color:#92400e; border:1px solid #fcd34d; padding:2px 9px; border-radius:12px; font-size:11px; font-weight:600; white-space:nowrap; }
+.table-footer { padding:8px 14px; font-size:12px; color:#6b7a99; border-top:1px solid #eef1f7; background:#fafbfd; }
 
 /* ── Buttons ── */
 .stButton > button {
@@ -167,6 +200,25 @@ def now_str():
 
 def short_id(prefix):
     return f"{prefix}-{str(uuid.uuid4())[:5].upper()}"
+
+
+def df_to_html(df, max_rows=None):
+    """Render a DataFrame as a styled HTML table."""
+    data = df.head(max_rows) if max_rows else df
+    cols = list(data.columns)
+    header = "".join(f"<th>{c}</th>" for c in cols)
+    rows = ""
+    for _, row in data.iterrows():
+        cells = "".join(f"<td>{str(row[c])}</td>" for c in cols)
+        rows += f"<tr>{cells}</tr>"
+    return f'''<div class="mds-table-wrap">
+        <table class="mds-table">
+            <thead><tr>{header}</tr></thead>
+            <tbody>{rows}</tbody>
+        </table>
+        <div class="table-footer">{len(data)} row{"s" if len(data)!=1 else ""}</div>
+    </div>'''
+
 
 
 # ── Seed data ─────────────────────────────────────────────────────────────────
@@ -365,6 +417,10 @@ def render_domain_page(domain):
     # Tabs
     tab_all, tab_active, tab_inactive = st.tabs(["All records", "Active", "Inactive"])
 
+    def status_badge_html(status):
+        cls = {"Active":"badge-active","Inactive":"badge-inactive","Discontinued":"badge-discontinued"}.get(status,"badge-inactive")
+        return f'<span class="{cls}">{status}</span>'
+
     def show_table(tab, status_filter=None):
         with tab:
             data = df if status_filter is None else df[df["Status"] == status_filter]
@@ -373,9 +429,33 @@ def render_domain_page(domain):
             if search:
                 mask = data.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
                 data = data[mask]
-            st.dataframe(data[cfg["display_cols"]], use_container_width=True, hide_index=True,
-                         column_config={"Modified": st.column_config.DateColumn("Modified", format="MMM DD, YYYY")})
-            st.caption(f"{len(data)} records")
+
+            cols = cfg["display_cols"]
+            header_cells = "".join(f"<th>{c}</th>" for c in cols)
+            rows_html = ""
+            for _, row in data.iterrows():
+                cells = ""
+                for c in cols:
+                    val = str(row.get(c, ""))
+                    if c == "ID":
+                        cells += f'<td><span class="mono">{val}</span></td>'
+                    elif c == "Status":
+                        cells += f'<td>{status_badge_html(val)}</td>'
+                    elif c in ("Modified By",):
+                        cells += f'<td><span class="muted">{val}</span></td>'
+                    else:
+                        cells += f"<td>{val}</td>"
+                rows_html += f"<tr>{cells}</tr>"
+
+            html = f"""
+            <div class="mds-table-wrap">
+                <table class="mds-table">
+                    <thead><tr>{header_cells}</tr></thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+                <div class="table-footer">{len(data)} record{"s" if len(data) != 1 else ""}</div>
+            </div>"""
+            st.markdown(html, unsafe_allow_html=True)
 
     show_table(tab_all)
     show_table(tab_active, "Active")
@@ -622,7 +702,7 @@ def render_import():
             return
 
         st.markdown(f"**{len(df_upload)} rows detected — preview:**")
-        st.dataframe(df_upload.head(10), use_container_width=True, hide_index=True)
+        st.markdown(df_to_html(df_upload, max_rows=10), unsafe_allow_html=True)
 
         # Validate
         errors, valid_rows = [], []
@@ -645,7 +725,7 @@ def render_import():
 
         if errors:
             st.warning(f"{len(errors)} row(s) have validation errors and will not be staged.")
-            st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
+            st.markdown(df_to_html(pd.DataFrame(errors)), unsafe_allow_html=True)
             st.download_button("⬇ Download error report", data=pd.DataFrame(errors).to_csv(index=False),
                                file_name="mds_import_errors.csv", mime="text/csv")
 
